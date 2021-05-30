@@ -26,6 +26,9 @@ repository = "https://github.com/rust-embedded/svd2rust/"
 version = "0.19.0"
 readme = "README.md"
 
+[package.metadata.deb]
+section = "rust"
+
 [[bin]]
 doc = false
 name = "svd2rust"
@@ -44,12 +47,10 @@ anyhow = "1.0"
 thiserror = "1.0"
 
 [dependencies.svd-parser]
-version = "0.10.2"
 features = ["derive-from"]
+git = "https://github.com/rust-embedded/svd"
+branch = "roxmltree"
 
 [dependencies.syn]
 version = "1.0"
 features = ["full","extra-traits"]
-
-[features]
-strict = ["svd-parser/strict"]
