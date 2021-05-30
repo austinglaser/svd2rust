@@ -1,6 +1,6 @@
 use crate::svd::{
-    Access, BitRange, EnumeratedValues, Field, Peripheral, Register, RegisterProperties, Usage,
-    WriteConstraint,
+    Access, BitRange, EnumeratedValues, Field, ModifiedWriteValues, Peripheral, Register,
+    RegisterProperties, Usage, WriteConstraint,
 };
 use cast::u64;
 use core::u64;
@@ -277,8 +277,8 @@ pub fn fields(
     config: &Config,
 ) -> Result<()> {
     let span = Span::call_site();
-    let can_read = [Access::ReadOnly, Access::ReadWriteOnce, Access::ReadWrite].contains(&access);
-    let can_write = access != Access::ReadOnly;
+    let can_read = access.can_read();
+    let can_write = access.can_write();
 
     // TODO enumeratedValues
     let inline = quote! { #[inline(always)] };
@@ -572,6 +572,10 @@ pub fn fields(
         }
 
         if can_write {
+            let mwv = f
+                .modified_write_values
+                .or_else(|| parent.modified_write_values)
+                .unwrap_or_default();
             let new_pc_aw = Ident::new(&(name_pc.clone() + "_AW"), span);
             let name_pc_w = Ident::new(&(name_pc.clone() + "_W"), span);
             let name_pc_cgw = Ident::new(&(name_pc.clone() + "_CGW"), span);
@@ -636,19 +640,80 @@ pub fn fields(
             }
 
             if width == 1 {
-                proxy_items.extend(quote! {
-                    ///Sets the field bit
-                    #inline
-                    pub #unsafety fn set_bit(self) -> &'a mut W {
-                        self.bit(true)
-                    }
+                if mwv != ModifiedWriteValues::Modify {
+                    unsafety = Some(Ident::new("unsafe", Span::call_site()));
+                }
 
-                    ///Clears the field bit
-                    #inline
-                    pub #unsafety fn clear_bit(self) -> &'a mut W {
-                        self.bit(false)
+                match mwv {
+                    ModifiedWriteValues::Modify => {
+                        proxy_items.extend(quote! {
+                            ///Sets the field bit
+                            #inline
+                            pub fn set_bit(self) -> &'a mut W {
+                                self.bit(true)
+                            }
+                            ///Clears the field bit
+                            #inline
+                            pub fn clear_bit(self) -> &'a mut W {
+                                self.bit(false)
+                            }
+                        });
                     }
-                });
+                    ModifiedWriteValues::OneToSet | ModifiedWriteValues::Set => {
+                        proxy_items.extend(quote! {
+                            ///Sets the field bit
+                            #inline
+                            pub fn set_bit(self) -> &'a mut W {
+                                unsafe { self.bit(true) }
+                            }
+                        });
+                    }
+                    ModifiedWriteValues::ZeroToClear | ModifiedWriteValues::Clear => {
+                        proxy_items.extend(quote! {
+                            ///Clears the field bit
+                            #inline
+                            pub fn clear_bit(self) -> &'a mut W {
+                                unsafe { self.bit(false) }
+                            }
+                        });
+                    }
+                    ModifiedWriteValues::OneToClear => {
+                        proxy_items.extend(quote! {
+                            ///Clears the field bit by passing one
+                            #inline
+                            pub fn clear_bit_by_one(self) -> &'a mut W {
+                                unsafe { self.bit(true) }
+                            }
+                        });
+                    }
+                    ModifiedWriteValues::ZeroToSet => {
+                        proxy_items.extend(quote! {
+                            ///Sets the field bit by passing zero
+                            #inline
+                            pub fn set_bit_by_zero(self) -> &'a mut W {
+                                unsafe { self.bit(false) }
+                            }
+                        });
+                    }
+                    ModifiedWriteValues::OneToToggle => {
+                        proxy_items.extend(quote! {
+                            ///Toggle the field bit by passing one
+                            #inline
+                            pub fn toggle_bit(self) -> &'a mut W {
+                                unsafe { self.bit(true) }
+                            }
+                        });
+                    }
+                    ModifiedWriteValues::ZeroToToggle => {
+                        proxy_items.extend(quote! {
+                            ///Toggle the field bit by passing zero
+                            #inline
+                            pub fn toggle_bit(self) -> &'a mut W {
+                                unsafe { self.bit(false) }
+                            }
+                        });
+                    }
+                }
             }
 
             let mut proxy_items_fa = TokenStream::new();
