@@ -114,16 +114,65 @@ pub fn render(
         .iter()
         .filter_map(|erc| match util::erc_derived_from(erc) {
             Some(ref derived) => {
-                let ancestor = match erc_map.get(derived) {
-                    Some(erc) => erc,
-                    None => {
-                        eprintln!(
-                            "register/cluster {} derivedFrom missing register/cluster {}",
-                            util::erc_name(erc),
-                            derived
-                        );
-                        return None;
+                let mut parts = derived.split('.');
+                let part1: Option<&str> = parts.next();
+                let part2: Option<&str> = parts.next();
+                if parts.next().is_some() {
+                    eprintln!(
+                        "register/cluster {} derivedFrom {} has too many parts",
+                        util::erc_name(erc),
+                        derived
+                    );
+                    return None;
+                }
+                let ancestor = match (part1, part2) {
+                    (Some(register), None) => match erc_map.get(&register.to_owned()) {
+                        Some(erc) => erc,
+                        None => {
+                            eprintln!(
+                                "register/cluster {} derivedFrom missing register/cluster {}",
+                                util::erc_name(erc),
+                                derived
+                            );
+                            return None;
+                        }
+                    },
+                    (Some(peripheral), Some(register)) => {
+                        if peripheral == p.name {
+                            match erc_map.get(&register.to_owned()) {
+                                Some(erc) => erc,
+                                None => {
+                                    eprintln!(
+                                "register/cluster {} derivedFrom missing register/cluster {}",
+                                util::erc_name(erc),
+                                derived
+                            );
+                                    return None;
+                                }
+                            }
+                        } else {
+                            let mut ancestor = None;
+                            for other_periph in all_peripherals {
+                                if other_periph.name == peripheral {
+                                    if let Some(regs) = &other_periph.registers {
+                                        for reg in regs {
+                                            if util::erc_name(&reg) == register {
+                                                ancestor = Some(reg);
+                                            }
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                            if let Some(anc) = ancestor {
+                                anc
+                            } else {
+                                eprintln!("could not find derivedFrom");
+                                return None;
+                            }
+                        }
                     }
+                    _ => todo!(),
                 };
 
                 match (erc, ancestor) {
